@@ -21,7 +21,7 @@ import kotlin.system.measureTimeMillis
 
 // region --------------------------- ToDo ---------------------------
 
-// todo: cleanup the repository
+// todo: rename the repository
 // todo: command to insert a badge (about author) after pic, before first words
 // todo: code width equals to container width
 // todo: render only text (to check commentaries with grammarly)

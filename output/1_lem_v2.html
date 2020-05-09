@@ -1,0 +1,199 @@
+<div style="text-align:center">
+ <img src="http://gzozulin.com/wp-content/uploads/2020/05/venus-2.jpg" alt="First Spaceship on Venus">
+</div>
+<br>
+<p><em><strong>In one of my previous posts,</strong></em> I wrote about a tool called <em>Lem</em>. This tool designed to solve some of the challenges with writing about code.</p>
+<p>The main idea of it is to have a way to <em>discuss the code while it is changing</em>.  Even when I am writing about a finished project - I am doing small fixes and changes as I go. For me, the hobby projects are like home renovations - you can only start them.</p>
+<p>I also would like to have a way to <em>layout and preview the outcome in WYSIWYG mode</em>. It will be especially valuable if the <em>content is independent of the rendering</em>. Like if, at some point, I would like to change the platform on which I host my blog - it will be a matter of recompiling the content for the new frontend.</p>
+<p>To sum up, I needed a tool, which will tackle those challenges in an easy-to-use package. With this in mind, I was looking for inspiration.</p>
+<h2>Introducing LemV2</h2>
+<p>The original idea of LemV1 based on the concept of <a href="https://en.wikipedia.org/wiki/Literate_programming">Literate Programming</a> - an approach proposed by non-other than Donald Knuth - I hope you do not need my introduction for him.</p>
+<p>Literate programming is a programming paradigm in which a computer program is given an explanation of its logic in a natural language, such as English, interspersed with snippets of macros and traditional source code.</p>
+<p>While implementing my take on the idea, I noticed that the most significant chunk of work is related to the common elements of structured text: links, tables, lists, styles, etc. It was pretty noticeable that I am in the tedious process of reinventing a bicycle.</p>
+<p>Thankfully, the main force behind any progress, the laziness, offered its help in the form of somebody else's solution. That solution was to include the support for <a href="https://en.wikipedia.org/wiki/Markdown">Markdown</a> in the project.</p>
+<p>I also removed all non-essential things from the code - &quot;architecture,&quot; dependency injection, <a href="http://gzozulin.com/wp-content/uploads/2020/05/java-abstraction.png">abstraction layers</a> - all those things that disallow enterprise solutions from becoming a normal working product.</p>
+<p>In this, hopefully short, article, I want to walk you down through the implementation details of LemV2. Hopefully, that will be interesting for you and beneficial for me in the form of feedback.</p>
+<h2>Ceasar of programming: doing multiple things at the same time</h2>
+<p>As with any other program, it should start somewhere. Following a longstanding tradition, the entry point for LemV2 is called <em>main</em>. There is a couple of things to note:</p>
+<ul>
+<li>The execution is meant to be <em>highly parallel</em> - I am sharpening my coroutines sword here</li>
+</ul>
+<ul>
+<li>For each cycle I want to <em>roughly measure the timing</em> - so I can immediately notice if any of the performance optimizations give effect</li>
+</ul>
+<br>
+<p>The program operates on the notion of a <em>scenario</em> - a file describing a backbone for the article. It consists of a mix of Markdown and <em>commands</em>. A command is a way to perform a meta operation on Markdown: for example, to include a code snippet.</p>
+<h5><a href="https://github.com/madeinsoviets/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L393">com/gzozulin/LemV2App.kt::main</a></h5>
+<p>Main function starts with the measurement</p>
+<pre><code class="language-kotlin">fun main() {
+    val millis = measureTimeMillis {
+        runBlocking {
+</code></pre>
+<p>We list all the scenarios in the input folder and launch tasks asynchronously:</p>
+<pre><code class="language-kotlin">            val scenarios = inputFolder.list()!!
+            val deferred = mutableListOf&lt;Deferred&lt;Unit&gt;&gt;()
+            for (scenario in scenarios) {
+                val scenarioFile = File(inputFolder, scenario)
+                val outputFile = File(outputFolder, &quot;$scenario.html&quot;)
+                check(scenarioFile.exists() &amp;&amp; scenarioFile.isFile)
+                deferred.add(async(Dispatchers.Default) { renderScenario(scenarioFile, outputFile) })
+            }
+</code></pre>
+<p>Joining the fork for launched tasks:</p>
+<pre><code class="language-kotlin">            deferred.awaitAll()
+        }
+    }
+</code></pre>
+<p>Here I usually notice that my optimizations are futile</p>
+<pre><code class="language-kotlin">    println(&quot;Finished in %.2f seconds&quot;.format(millis / 1000f))
+}
+</code></pre>
+<p>Each scenario is handled in isolation:</p>
+<h5><a href="https://github.com/madeinsoviets/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L365">com/gzozulin/LemV2App.kt::renderScenario</a></h5>
+<p>Scenario file starts with a set of arguments: github url, repo path, etc.</p>
+<pre><code class="language-kotlin">private fun renderScenario(scenario: File, output: File) {
+    val (root, url, lines) = extractArguments(scenario)
+</code></pre>
+<p>Next, we want to identify and apply the meta commands</p>
+<pre><code class="language-kotlin">    val withCommands = identifyCommands(lines)
+    val onlyMarkdown = applyCommands(withCommands, root, url)
+    lateinit var htmlSnippets: List&lt;SnippetHtml&gt;
+</code></pre>
+<p>When we have a final markdown, it can be rendered to html in parallel manner</p>
+<pre><code class="language-kotlin">    runBlocking {
+        val deferred = mutableListOf&lt;Deferred&lt;SnippetHtml&gt;&gt;()
+        for (snippetMarkdown in onlyMarkdown) {
+            deferred.add(async(Dispatchers.Default) { renderHtml(snippetMarkdown) })
+        }
+        htmlSnippets = deferred.awaitAll()
+    }
+</code></pre>
+<p>And flushed into an output file</p>
+<pre><code class="language-kotlin">    renderFile(output, htmlSnippets)
+}
+</code></pre>
+<p>Now, let us have a look at how the commands identified and applied.</p>
+<h2>Going meta: identifying and applying commands</h2>
+<p>Commands play a crucial role in the application. Their primary purpose is to glue together the code and the explanation.</p>
+<p>They also have a secret goal: It will be relatively unfair just to use a third-party library on Markdown and call it <em>my</em> project. But now, I  can feel good about my accomplishment.</p>
+<p>Back to commands - before I can apply, I need to identify them inside of the scenario file.</p>
+<h5><a href="https://github.com/madeinsoviets/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L99">com/gzozulin/LemV2App.kt::identifyCommands</a></h5>
+<p>Everything is straightforward here - we just check if the line starts with <strong>@</strong> symbol</p>
+<pre><code class="language-kotlin">private fun identifyCommands(lines: List&lt;String&gt;) = lines
+    .map { if (it.startsWith(COMMAND_PREFIX)) SnippetCommand(it) else SnippetMarkdown(it) }
+</code></pre>
+<p>The next step is to apply them. Since the result of the command can be evaluated independently, it is one more good point to fork the execution:</p>
+<h5><a href="https://github.com/madeinsoviets/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L103">com/gzozulin/LemV2App.kt::applyCommands</a></h5>
+<p>The first part of this routine will asynchronously apply commands one-by-one</p>
+<pre><code class="language-kotlin">private fun applyCommands(snippets: List&lt;Snippet&gt;, root: File, url: String): List&lt;SnippetMarkdown&gt; {
+    val result = mutableListOf&lt;SnippetMarkdown&gt;()
+    lateinit var handled: ArrayList&lt;List&lt;SnippetMarkdown&gt;&gt;
+    runBlocking {
+        val deferred = mutableListOf&lt;Deferred&lt;List&lt;SnippetMarkdown&gt;&gt;&gt;()
+        for (snippet in snippets) {
+            if (snippet is SnippetCommand) {
+                deferred.add(async (Dispatchers.Default) { applyCommand(snippet, root, url) })
+            }
+        }
+        handled = ArrayList(deferred.awaitAll())
+    }
+</code></pre>
+<p>When all of the results are available,
+we can assemble them into a list in the <em>same order</em> as they were started</p>
+<pre><code class="language-kotlin">    for (snippet in snippets) {
+        if (snippet is SnippetCommand) {
+            result.addAll(handled.removeAt(0))
+        } else {
+            result.add(snippet as SnippetMarkdown)
+        }
+    }
+    return result
+}
+</code></pre>
+<h5><a href="https://github.com/madeinsoviets/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L130">com/gzozulin/LemV2App.kt::applyCommand</a></h5>
+<p>To apply the specific command I just switch by its label and call the appropriate method</p>
+<pre><code class="language-kotlin">private fun applyCommand(command: SnippetCommand, root: File, url: String): List&lt;SnippetMarkdown&gt; {
+    try {
+        val cmdBody = command.command.removePrefix(COMMAND_PREFIX)
+        val split = cmdBody.split(whitespacePattern)
+        val location = parseLocation(root, url, split[2])
+        return when (split[1]) {
+            COMMAND_DECL -&gt; includeDecl(location)
+            COMMAND_DEF -&gt; includeDef(location)
+            else -&gt; TODO()
+        }
+</code></pre>
+<p>Since the commands can contain literally anything,
+one can assume that errors will also happen and prepare for that</p>
+<pre><code class="language-kotlin">    } catch (th: Throwable) {
+        error(&quot;Failed to handle command: ${command.command}&quot;)
+    }
+}
+</code></pre>
+<p>At this point, we have a final Markdown, which will we will render into HTML, but let us firstly look at how the commands work behind the scenes - no stone should be left unturned.</p>
+<h2>Looking for a needle in the hay: extracting code snippets</h2>
+<p>Since most of the commands operate on the repository, naturally, we need to find the location of the requested code snippet.</p>
+<p>Locations can be pretty intricate: I allow for home <strong>~</strong> symbol, which unwraps into source code root directory.</p>
+<p>Modules are also allowed. Here are some examples of locations:</p>
+<ul>
+<li><em>~/com.gzozulin.LemV2App::main</em></li>
+</ul>
+<ul>
+<li><em>common_gl/~/com.blaster.Renderer::go</em></li>
+</ul>
+<ul>
+<li><em>/src/main/kotlin/com.gzozulin.LemV2App::main</em></li>
+</ul>
+<br>
+<p>Whole command can look like this: <em>include def ~/com.gzozulin.LemV2App::parseLocation</em></p>
+<p>The parsing of the location itself is a straightforward process:</p>
+<h5><a href="https://github.com/madeinsoviets/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L343">com/gzozulin/LemV2App.kt::parseLocation</a></h5>
+<pre><code class="language-kotlin">private fun parseLocation(root: File, url: String, location: String): Location {
+    val noDots = location.replace(&quot;.&quot;, &quot;/&quot;)
+    val withHome = noDots.replace(&quot;~&quot;, HOME_DIR)
+    val (filename, identifier) = withHome.split(&quot;::&quot;)
+    val file = File(&quot;$filename.kt&quot;)
+    check(file.exists()) { &quot;File do not exists: $location&quot; }
+    return Location(root, file, identifier, url)
+}
+</code></pre>
+<p>When the code snippet located, we can extract it. It is possible to obtain either <em>declaration</em> or <em>definition</em>. The declaration only includes, non-surprisingly, the declaration of the entity. For the method, it will be its name, parameters, and return type. On the other hand, the definition also includes the method body. Similar rules work for the class and other entities.</p>
+<p>For the sake of brevity, I only show how that will work for the declaration. The definition works precisely the same.</p>
+<h5><a href="https://github.com/madeinsoviets/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L149">com/gzozulin/LemV2App.kt::includeDecl</a></h5>
+<pre><code class="language-kotlin">private fun includeDecl(location: Location): List&lt;SnippetMarkdown&gt; {
+    lateinit var tokens: List&lt;Token&gt;
+    var line = 0
+    val file = File(location.root, location.file.path)
+</code></pre>
+<p>To parse and understand Kotlin code, I am using a tool called <a href="https://www.antlr.org/">Antlr</a>.
+Their marketing team outlines the following advantages of the framework:
+&quot;ANTLR (ANother Tool for Language Recognition) is a powerful parser generator for reading,
+processing, executing, or translating structured text or binary files.&quot;
+I do not want to go into too many details about parsing - grammar files are
+<a href="https://github.com/Kotlin/kotlin-spec">available</a> for most of the modern languages.
+If the language of your preference is not in the long <a href="https://github.com/antlr/grammars-v4/">list</a>
+reconsider its advantages.</p>
+<pre><code class="language-kotlin">    kotlinParserCache.useParser(file) { parser, stream -&gt;
+        val declaration = locateKotlin(parser, location)
+        line = declaration.start.line
+        val firstToken = findFirstToken(stream, declaration)
+        val lastToken = findLastToken(stream, declaration)
+        tokens = stream.get(firstToken, lastToken)
+    }
+    val result = mutableListOf&lt;SnippetMarkdown&gt;()
+</code></pre>
+<p>At this point we can also create a convenient link, pointing to the Github repo.</p>
+<pre><code class="language-kotlin">    result.add(createHeaderLink(location, line))
+    result.addAll(extractStatements(tokens))
+    return result
+}
+</code></pre>
+<p>After all of the commands applied, the resulting Markdown is ready to be parsed and rendered into HTML. The process is trivial and therefore omitted.</p>
+<h2>Final thoughts: good enough</h2>
+<p>While working on this article, I was able to use Lem to the full extent. Surprisingly, it is quite a comfortable tool to work with.</p>
+<p>For the WYSIWYG part, I am using an external editor called <a href="https://stackedit.io/">StackEdit</a>. It works quite well and has a lot of useful features. I am copying the content from StackEdit just before the 'compilation' by Lem. If anybody is interested, <a href="https://github.com/madeinsoviets/lemV2/blob/master/scenarios/1_lem_v2">here</a> is the scenario file for this article.</p>
+<p>All of the scenario files and resulting HTML kept under Git in the single <a href="https://github.com/madeinsoviets/lemV2">repo</a>. That allows me to track changes and notice unexpected quirks with HTML rendering. For example, if some API's changed, and this change not reflected in the corresponding scenario file, I will immediately notice that after recompilation.</p>
+<p>There are, of course, things to improve. For example, I would like to move scenarios into a separate repo. External interface for the tool also would be excellent, since now you need to fire up <a href="https://docs.gradle.org/current/userguide/application_plugin.html">Gradle</a> to perform the rendering.</p>
+<p>I also would like to expand the commands set. I am thinking about commands to include common HTML fragments like a table of contents, Twitter badges, maybe annoying ads - that sort of things. In any case, it is doing what it is designed to do, and I mostly like it as it is now.</p>
+<p>I hope you liked the article and it was entertaining enough. Have a great time, and will see you again on the pages of Journal. Meanwhile, let me recompile this article just one more time:</p>
+<p><em>Finished in 5.22 seconds</em></p>

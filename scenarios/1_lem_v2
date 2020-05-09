@@ -1,0 +1,97 @@
+C:\dev\lemV2
+https://github.com/madeinsoviets/lemV2/tree/master
+
+<div style="text-align:center">
+ <img src="http://gzozulin.com/wp-content/uploads/2020/05/venus-2.jpg" alt="First Spaceship on Venus">
+</div>
+<br>
+
+***In one of my previous posts,*** I wrote about a tool called *Lem*. This tool designed to solve some of the challenges with writing about code.
+
+The main idea of it is to have a way to *discuss the code while it is changing*.  Even when I am writing about a finished project - I am doing small fixes and changes as I go. For me, the hobby projects are like home renovations - you can only start them.
+
+I also would like to have a way to *layout and preview the outcome in WYSIWYG mode*. It will be especially valuable if the *content is independent of the rendering*. Like if, at some point, I would like to change the platform on which I host my blog - it will be a matter of recompiling the content for the new frontend.
+
+To sum up, I needed a tool, which will tackle those challenges in an easy-to-use package. With this in mind, I was looking for inspiration.
+
+## Introducing LemV2
+The original idea of LemV1 based on the concept of [Literate Programming](https://en.wikipedia.org/wiki/Literate_programming) - an approach proposed by non-other than Donald Knuth - I hope you do not need my introduction for him.
+
+Literate programming is a programming paradigm in which a computer program is given an explanation of its logic in a natural language, such as English, interspersed with snippets of macros and traditional source code.
+
+While implementing my take on the idea, I noticed that the most significant chunk of work is related to the common elements of structured text: links, tables, lists, styles, etc. It was pretty noticeable that I am in the tedious process of reinventing a bicycle.
+
+Thankfully, the main force behind any progress, the laziness, offered its help in the form of somebody else's solution. That solution was to include the support for [Markdown](https://en.wikipedia.org/wiki/Markdown) in the project.
+
+I also removed all non-essential things from the code - "architecture," dependency injection, [abstraction layers](http://gzozulin.com/wp-content/uploads/2020/05/java-abstraction.png) - all those things that disallow enterprise solutions from becoming a normal working product.
+
+In this, hopefully short, article, I want to walk you down through the implementation details of LemV2. Hopefully, that will be interesting for you and beneficial for me in the form of feedback.
+
+## Ceasar of programming: doing multiple things at the same time
+As with any other program, it should start somewhere. Following a longstanding tradition, the entry point for LemV2 is called *main*. There is a couple of things to note:
+* The execution is meant to be *highly parallel* - I am sharpening my coroutines sword here
+* For each cycle I want to *roughly measure the timing* - so I can immediately notice if any of the performance optimizations give effect
+
+<br>
+The program operates on the notion of a *scenario* - a file describing a backbone for the article. It consists of a mix of Markdown and *commands*. A command is a way to perform a meta operation on Markdown: for example, to include a code snippet.
+
+@include def ~/com.gzozulin.LemV2App::main
+
+Each scenario is handled in isolation:
+
+@include def ~/com.gzozulin.LemV2App::renderScenario
+
+Now, let us have a look at how the commands identified and applied.
+
+##  Going meta: identifying and applying commands
+Commands play a crucial role in the application. Their primary purpose is to glue together the code and the explanation.
+
+They also have a secret goal: It will be relatively unfair just to use a third-party library on Markdown and call it *my* project. But now, I  can feel good about my accomplishment.
+
+Back to commands - before I can apply, I need to identify them inside of the scenario file.
+@include def ~/com.gzozulin.LemV2App::identifyCommands
+
+The next step is to apply them. Since the result of the command can be evaluated independently, it is one more good point to fork the execution:
+@include def ~/com.gzozulin.LemV2App::applyCommands
+@include def ~/com.gzozulin.LemV2App::applyCommand
+
+At this point, we have a final Markdown, which will we will render into HTML, but let us firstly look at how the commands work behind the scenes - no stone should be left unturned.
+
+## Looking for a needle in the hay: extracting code snippets
+
+Since most of the commands operate on the repository, naturally, we need to find the location of the requested code snippet.
+
+Locations can be pretty intricate: I allow for home **~** symbol, which unwraps into source code root directory.
+
+Modules are also allowed. Here are some examples of locations:
+* *~/com.gzozulin.LemV2App::main*
+* *common_gl/~/com.blaster.Renderer::go*
+* */src/main/kotlin/com.gzozulin.LemV2App::main*
+
+<br>
+Whole command can look like this: *include def ~/com.gzozulin.LemV2App::parseLocation*
+
+The parsing of the location itself is a straightforward process:
+@include def ~/com.gzozulin.LemV2App::parseLocation
+
+When the code snippet located, we can extract it. It is possible to obtain either *declaration* or *definition*. The declaration only includes, non-surprisingly, the declaration of the entity. For the method, it will be its name, parameters, and return type. On the other hand, the definition also includes the method body. Similar rules work for the class and other entities.
+
+For the sake of brevity, I only show how that will work for the declaration. The definition works precisely the same.
+@include def ~/com.gzozulin.LemV2App::includeDecl
+
+After all of the commands applied, the resulting Markdown is ready to be parsed and rendered into HTML. The process is trivial and therefore omitted.
+
+## Final thoughts: good enough
+While working on this article, I was able to use Lem to the full extent. Surprisingly, it is quite a comfortable tool to work with.
+
+For the WYSIWYG part, I am using an external editor called [StackEdit](https://stackedit.io/). It works quite well and has a lot of useful features. I am copying the content from StackEdit just before the 'compilation' by Lem. If anybody is interested, [here](https://github.com/madeinsoviets/lemV2/blob/master/scenarios/1_lem_v2) is the scenario file for this article.
+
+All of the scenario files and resulting HTML kept under Git in the single [repo](https://github.com/madeinsoviets/lemV2). That allows me to track changes and notice unexpected quirks with HTML rendering. For example, if some API's changed, and this change not reflected in the corresponding scenario file, I will immediately notice that after recompilation.
+
+There are, of course, things to improve. For example, I would like to move scenarios into a separate repo. External interface for the tool also would be excellent, since now you need to fire up [Gradle](https://docs.gradle.org/current/userguide/application_plugin.html) to perform the rendering.
+
+I also would like to expand the commands set. I am thinking about commands to include common HTML fragments like a table of contents, Twitter badges, maybe annoying ads - that sort of things. In any case, it is doing what it is designed to do, and I mostly like it as it is now.
+
+I hope you liked the article and it was entertaining enough. Have a great time, and will see you again on the pages of Journal. Meanwhile, let me recompile this article just one more time:
+
+*Finished in 5.22 seconds*

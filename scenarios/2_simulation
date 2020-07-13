@@ -1,0 +1,68 @@
+C:\dev\blasterV2\mars
+https://github.com/gzozulin/blasterV2/blob/master
+
+I always wanted to create games. And I did a couple of times and tried many times more. The results are usually pretty shallow - straightforward arcades for mobiles. The problem with game development for me is that I enjoy sleeping. Since most of my free programming happens after working hours, I cannot allocate a year or two of zombie-time to create something a little more involved — sort of a convenience problem.
+
+Now I would like to try a different approach. Recently I watched a couple of videos where the guy was playing Dwarf Fortress. It is a very involved game with elaborate mechanics - the kind of game I would be very hesitant to start programming. And then an idea came: what if I can approach that iteratively? One small and independent addition at a time?
+
+I am not bounded by any contracts or restrictions  - it is just an art form for me. I can start wherever I want, and I can finish as I am pleased. Since I do not wish to receive any cash from it, I'm also not bound to particular design considerations. I don't have to create one more free-to-play money extracting clone. Also, I'm more interested in the simulation aspect of the game than graphics - similar to Dwarf Fortress.
+
+To kickstart, let us discuss the main architectural considerations.
+
+### Designing the simulation
+The key idea behind the Dwarf Fortress is that the story is a result of the simulation, rather than being defined through the scenario. That is mostly due to how the game designed. The game is a "pot" of actors that are constantly interacting with each other. That not only produces the current events but also can be used to create the history of the realm.
+
+I want to create a similar "pot," and specific criteria should be met:
+1.  Each aspect of the simulation should be independent of each other. For example, a physical component should not know anything about how it represented and vice versa.
+2.  The simulation should be incrementally extendable. It means that over time I should be able to add new aspects without significantly modifying previous ones.
+3.  Components should be reusable between different scenes. My past projects show that it is beneficial to have the ability to try and test techniques on small and abstract scenes.
+
+### Platform, Systems, Actors
+The application split into three distinct layers — a lot of ideas were taken from the CLEAN architectural approach:
+
+1. We start with the Platform layer. Thas is where most of the platform dependant code belongs. Examples are the OpenGL graphical subsystem, user inputs, assets parsing, and loading.
+2. Then the Systems layer follows. This layer represents platform-independent game mechanics. It is the main body of the game.
+3. And finally, we have the Data layer. Our repository with actors belongs here.
+
+All the dependencies should point inwards. It means that the actor doesn't know anything about the system, which handles it, and the system can run on every platform that your JVM distribution support.
+
+This approach is straightforward to follow. As it promises, it makes the separation between layers clean and hard to screw up. If it ever comes to that, the testing of those independent layers is a breeze as well.
+
+### Actors/Components
+The actor in this simulation represented as a bag of components. I decided to go with a sort of dynamic composition instead of the usual inheritance. I can extend the actor and add other aspects of simulation to it without worrying about modifying the others.
+
+@include def ~/com.gzozulin.mars.entity.Actors::Actor
+
+For example, consider that the soccer ball is a physical body, can be represented as a billboard and is visible for the players. It can have a component of a position shared by all of the above properties and specialized components to be used independently.
+
+One more idea is to have parent-child relations between actors. For example, a tank gun is a child of the tank and inherits the tank's position and orientation. But I decided not to pursue this idea because KISS.
+
+### The Repository
+The Repository is a central location for the data in this application. It is designed to be a single source of truth between the Systems. The main goal of the Repository is to simplify access to actors.
+@include decl ~/com.gzozulin.mars.entity.Repository::Repository
+
+The Repository consists of the storage itself and additional caches — the storage represented by a list of active actors with two auxiliary structures: for created and deleted.
+@include decl ~/com.gzozulin.mars.entity.Repository::created
+@include decl ~/com.gzozulin.mars.entity.Repository::active
+@include decl ~/com.gzozulin.mars.entity.Repository::removed
+
+That allows me to avoid concurrent modification exceptions and precisely control when the actors added or removed.
+There are also two main caches in the Repository. The first cache stores actors by partition:
+@include decl ~/com.gzozulin.mars.entity.Repository::byPartition
+
+If we assume that the whole simulation world split into chunks of space, then each actor, which has a spatial representation, can be correlated with such chunk.
+The second cache stores actors by component:
+@include decl ~/com.gzozulin.mars.entity.Repository::byComponent
+
+Both caches are there to speed up the retrieval of actors in certain situations. If you want to check whether your character is seeing another, you do not have to iterate against the whole world - just nearby partitions. For the second, the example is similar: it is fast to retrieve only the billboards to draw or the physical bodies to collide.
+One honorable mention goes to GcSystem:
+@include decl ~/com.gzozulin.mars.entity.Repository::GcSystem
+
+It is the only system, which has access to the internals of the Repository. The main task of this system is the maintenance of caches and created/updated entities.
+### Pull requests with Sequence
+### Push updates with ReactiveBus
+### Actor CSS with Templates, data/builder
+### The mechanics: bouncing balls
+### The presentation: patches and billboards
+### Sequential execution with forking
+### Profiling the whole thing

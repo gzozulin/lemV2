@@ -1,0 +1,57 @@
+<p>I always wanted to create games. And I did a couple of times and tried many times more. The results are usually pretty shallow - straightforward arcades for mobiles. The problem with game development for me is that I enjoy sleeping. Since most of my free programming happens after working hours, I cannot allocate a year or two of zombie-time to create something a little more involved — sort of a convenience problem.</p>
+<p>Now I would like to try a different approach. Recently I watched a couple of videos where the guy was playing Dwarf Fortress. It is a very involved game with elaborate mechanics - the kind of game I would be very hesitant to start programming. And then an idea came: what if I can approach that iteratively? One small and independent addition at a time?</p>
+<p>I am not bounded by any contracts or restrictions  - it is just an art form for me. I can start wherever I want, and I can finish as I am pleased. Since I do not wish to receive any cash from it, I'm also not bound to particular design considerations. I don't have to create one more free-to-play money extracting clone. Also, I'm more interested in the simulation aspect of the game than graphics - similar to Dwarf Fortress.</p>
+<p>To kickstart, let us discuss the main architectural considerations.</p>
+<h3>Designing the simulation</h3>
+<p>The key idea behind the Dwarf Fortress is that the story is a result of the simulation, rather than being defined through the scenario. That is mostly due to how the game designed. The game is a &quot;pot&quot; of actors that are constantly interacting with each other. That not only produces the current events but also can be used to create the history of the realm.</p>
+<p>I want to create a similar &quot;pot,&quot; and specific criteria should be met:</p>
+<ol>
+<li>Each aspect of the simulation should be independent of each other. For example, a physical component should not know anything about how it represented and vice versa.</li>
+</ol>
+<ol start="2">
+<li>The simulation should be incrementally extendable. It means that over time I should be able to add new aspects without significantly modifying previous ones.</li>
+</ol>
+<ol start="3">
+<li>Components should be reusable between different scenes. My past projects show that it is beneficial to have the ability to try and test techniques on small and abstract scenes.</li>
+</ol>
+<h3>Platform, Systems, Actors</h3>
+<p>The application split into three distinct layers — a lot of ideas were taken from the CLEAN architectural approach:</p>
+<ol>
+<li>We start with the Platform layer. Thas is where most of the platform dependant code belongs. Examples are the OpenGL graphical subsystem, user inputs, assets parsing, and loading.</li>
+</ol>
+<ol start="2">
+<li>Then the Systems layer follows. This layer represents platform-independent game mechanics. It is the main body of the game.</li>
+</ol>
+<ol start="3">
+<li>And finally, we have the Data layer. Our repository with actors belongs here.</li>
+</ol>
+<p>All the dependencies should point inwards. It means that the actor doesn't know anything about the system, which handles it, and the system can run on every platform that your JVM distribution support.</p>
+<p>This approach is straightforward to follow. As it promises, it makes the separation between layers clean and hard to screw up. If it ever comes to that, the testing of those independent layers is a breeze as well.</p>
+<h3>Actors/Components</h3>
+<p>The actor in this simulation represented as a bag of components. I decided to go with a sort of dynamic composition instead of the usual inheritance. I can extend the actor and add other aspects of simulation to it without worrying about modifying the others.</p>
+<h5><a href="https://github.com/gzozulin/blasterV2/blob/master/C:/dev/blasterV2/mars/src/main/kotlin/com/gzozulin/mars/entity/Actors.kt#L12">C:/dev/blasterV2/mars/src/main/kotlin/com/gzozulin/mars/entity/Actors.kt::Actor</a></h5>
+<pre><code class="language-kotlin">class Actor internal constructor() {
+    val uid: ActorUid = nextId.incrementAndGet()
+
+    internal val components: Array&lt;Component?&gt; = arrayOfNulls(ComponentType.values().size)
+
+    fun hasComponent(type: ComponentType) = components[type.ordinal] != null
+
+    @Suppress(&quot;UNCHECKED_CAST&quot;)
+    fun &lt;T : Component&gt; readComponent(type: ComponentType) = components[type.ordinal]!! as T
+    fun &lt;T : Component&gt; writeComponent(type: ComponentType): T {
+        reactiveBus.updated(type, this)
+        return readComponent(type)
+    }
+}
+</code></pre>
+<p>For example, consider that the soccer ball is a physical body, can be represented as a billboard and is visible for the players. It can have a component of a position shared by all of the above properties and specialized components to be used independently.</p>
+<p>One more idea is to have parent-child relations between actors. For example, a tank gun is a child of the tank and inherits the tank's position and orientation. But I decided not to pursue this idea because KISS.</p>
+<h3>Entity repository: created, active, removed, byComponent, byPartition, factories</h3>
+<h3>Pull requests with Sequence</h3>
+<h3>Push updates with ReactiveBus</h3>
+<h3>Actor CSS with Templates, data/builder</h3>
+<h3>The mechanics: bouncing balls</h3>
+<h3>The presentation: patches and billboards</h3>
+<h3>Sequential execution with forking</h3>
+<h3>Profiling the whole thing</h3>

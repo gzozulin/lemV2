@@ -5,7 +5,7 @@
 <p><em><strong>In one of my previous posts,</strong></em> I wrote about a tool called <em>Lem</em>. This tool designed to solve some of the challenges with writing about code.</p>
 <p>The main idea of it is to have a way to <em>discuss the code while it is changing</em>.  Even when I am writing about a finished project - I am doing small fixes and changes as I go. For me, the hobby projects are like home renovations - you can only start them.</p>
 <p>I also would like to have a way to <em>layout and preview the outcome in WYSIWYG mode</em>. It will be especially valuable if the <em>content is independent of the rendering</em>. Like if, at some point, I would like to change the platform on which I host my blog - it will be a matter of recompiling the content for the new frontend.</p>
-<p>To sum up, I needed a tool, which will tackle those challenges in an easy-to-use package. With this in mind, I was looking for inspiration.</p>
+<p>To sum up, I need a tool, which can convert a repository into an easy to read rich text. While the easiness solely depends on my writing skills, I definitely want some help with the rich text part. With this in mind, I was looking for inspiration.</p>
 <h2>Introducing LemV2</h2>
 <p>The original idea of LemV1 based on the concept of <a href="https://en.wikipedia.org/wiki/Literate_programming">Literate Programming</a> - an approach proposed by non-other than Donald Knuth - I hope you do not need my introduction for him.</p>
 <p>Literate programming is a programming paradigm in which a computer program is given an explanation of its logic in a natural language, such as English, interspersed with snippets of macros and traditional source code.</p>
@@ -23,7 +23,7 @@
 </ul>
 <br>
 <p>The program operates on the notion of a <em>scenario</em> - a file describing a backbone for the article. It consists of a mix of Markdown and <em>commands</em>. A command is a way to perform a meta operation on Markdown: for example, to include a code snippet.</p>
-<h5><a href="https://github.com/gzozulin/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L393">com/gzozulin/LemV2App.kt::main</a></h5>
+<h5><a href="https://github.com/gzozulin/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L392">com/gzozulin/LemV2App.kt::main</a></h5>
 <p>Main function starts with the measurement</p>
 <pre><code class="language-kotlin">fun main() {
     val millis = measureTimeMillis {
@@ -49,7 +49,7 @@
 }
 </code></pre>
 <p>Each scenario is handled in isolation:</p>
-<h5><a href="https://github.com/gzozulin/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L365">com/gzozulin/LemV2App.kt::renderScenario</a></h5>
+<h5><a href="https://github.com/gzozulin/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L364">com/gzozulin/LemV2App.kt::renderScenario</a></h5>
 <p>Scenario file starts with a set of arguments: github url, repo path, etc.</p>
 <pre><code class="language-kotlin">private fun renderScenario(scenario: File, output: File) {
     val (root, url, lines) = extractArguments(scenario)
@@ -77,13 +77,13 @@
 <p>Commands play a crucial role in the application. Their primary purpose is to glue together the code and the explanation.</p>
 <p>They also have a secret goal: It will be relatively unfair just to use a third-party library on Markdown and call it <em>my</em> project. But now, I  can feel good about my accomplishment.</p>
 <p>Back to commands - before I can apply, I need to identify them inside of the scenario file.</p>
-<h5><a href="https://github.com/gzozulin/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L99">com/gzozulin/LemV2App.kt::identifyCommands</a></h5>
+<h5><a href="https://github.com/gzozulin/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L98">com/gzozulin/LemV2App.kt::identifyCommands</a></h5>
 <p>Everything is straightforward here - we just check if the line starts with <strong>@</strong> symbol</p>
 <pre><code class="language-kotlin">private fun identifyCommands(lines: List&lt;String&gt;) = lines
     .map { if (it.startsWith(COMMAND_PREFIX)) SnippetCommand(it) else SnippetMarkdown(it) }
 </code></pre>
 <p>The next step is to apply them. Since the result of the command can be evaluated independently, it is one more good point to fork the execution:</p>
-<h5><a href="https://github.com/gzozulin/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L103">com/gzozulin/LemV2App.kt::applyCommands</a></h5>
+<h5><a href="https://github.com/gzozulin/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L102">com/gzozulin/LemV2App.kt::applyCommands</a></h5>
 <p>The first part of this routine will asynchronously apply commands one-by-one</p>
 <pre><code class="language-kotlin">private fun applyCommands(snippets: List&lt;Snippet&gt;, root: File, url: String): List&lt;SnippetMarkdown&gt; {
     val result = mutableListOf&lt;SnippetMarkdown&gt;()
@@ -110,7 +110,7 @@ we can assemble them into a list in the <em>same order</em> as they were started
     return result
 }
 </code></pre>
-<h5><a href="https://github.com/gzozulin/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L130">com/gzozulin/LemV2App.kt::applyCommand</a></h5>
+<h5><a href="https://github.com/gzozulin/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L129">com/gzozulin/LemV2App.kt::applyCommand</a></h5>
 <p>To apply the specific command I just switch by its label and call the appropriate method</p>
 <pre><code class="language-kotlin">private fun applyCommand(command: SnippetCommand, root: File, url: String): List&lt;SnippetMarkdown&gt; {
     try {
@@ -147,7 +147,7 @@ one can assume that errors will also happen and prepare for that</p>
 <br>
 <p>Whole command can look like this: <em>include def ~/com.gzozulin.LemV2App::parseLocation</em></p>
 <p>The parsing of the location itself is a straightforward process:</p>
-<h5><a href="https://github.com/gzozulin/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L343">com/gzozulin/LemV2App.kt::parseLocation</a></h5>
+<h5><a href="https://github.com/gzozulin/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L342">com/gzozulin/LemV2App.kt::parseLocation</a></h5>
 <pre><code class="language-kotlin">private fun parseLocation(root: File, url: String, location: String): Location {
     val noDots = location.replace(&quot;.&quot;, &quot;/&quot;)
     val withHome = noDots.replace(&quot;~&quot;, HOME_DIR)
@@ -159,7 +159,7 @@ one can assume that errors will also happen and prepare for that</p>
 </code></pre>
 <p>When the code snippet located, we can extract it. It is possible to obtain either <em>declaration</em> or <em>definition</em>. The declaration only includes, non-surprisingly, the declaration of the entity. For the method, it will be its name, parameters, and return type. On the other hand, the definition also includes the method body. Similar rules work for the class and other entities.</p>
 <p>For the sake of brevity, I only show how that will work for the declaration. The definition works precisely the same.</p>
-<h5><a href="https://github.com/gzozulin/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L149">com/gzozulin/LemV2App.kt::includeDecl</a></h5>
+<h5><a href="https://github.com/gzozulin/lemV2/tree/master/src/main/kotlin/com/gzozulin/LemV2App.kt#L148">com/gzozulin/LemV2App.kt::includeDecl</a></h5>
 <pre><code class="language-kotlin">private fun includeDecl(location: Location): List&lt;SnippetMarkdown&gt; {
     lateinit var tokens: List&lt;Token&gt;
     var line = 0

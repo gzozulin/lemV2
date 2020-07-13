@@ -12,7 +12,7 @@ The main idea of it is to have a way to *discuss the code while it is changing*.
 
 I also would like to have a way to *layout and preview the outcome in WYSIWYG mode*. It will be especially valuable if the *content is independent of the rendering*. Like if, at some point, I would like to change the platform on which I host my blog - it will be a matter of recompiling the content for the new frontend.
 
-To sum up, I needed a tool, which will tackle those challenges in an easy-to-use package. With this in mind, I was looking for inspiration.
+To sum up, I need a tool, which can convert a repository into an easy to read rich text. While the easiness solely depends on my writing skills, I definitely want some help with the rich text part. With this in mind, I was looking for inspiration.
 
 ## Introducing LemV2
 The original idea of LemV1 based on the concept of [Literate Programming](https://en.wikipedia.org/wiki/Literate_programming) - an approach proposed by non-other than Donald Knuth - I hope you do not need my introduction for him.

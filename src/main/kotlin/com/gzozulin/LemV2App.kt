@@ -141,7 +141,7 @@ private fun applyCommand(command: SnippetCommand, root: File, url: String): List
             one can assume that errors will also happen and prepare for that
          */
     } catch (th: Throwable) {
-        error("Failed to handle command: ${command.command}")
+        error("Failed to handle command: ${command.command}, with error: ${th.message}")
     }
 }
 
@@ -343,7 +343,7 @@ private fun parseLocation(root: File, url: String, location: String): Location {
     val noDots = location.replace(".", "/")
     val withHome = noDots.replace("~", HOME_DIR)
     val (filename, identifier) = withHome.split("::")
-    val file = File("$filename.kt")
+    val file = File(root, "$filename.kt")
     check(file.exists()) { "File do not exists: $location" }
     return Location(root, file, identifier, url)
 }
@@ -393,7 +393,7 @@ fun main() {
     val millis = measureTimeMillis {
         runBlocking {
             // We list all the scenarios in the input folder and launch tasks asynchronously:
-            val scenarios = inputFolder.list()!!
+            val scenarios = listOf("2_simulation")//inputFolder.list()!!
             val deferred = mutableListOf<Deferred<Unit>>()
             for (scenario in scenarios) {
                 val scenarioFile = File(inputFolder, scenario)

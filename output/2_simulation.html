@@ -29,7 +29,7 @@
 <p>This approach is straightforward to follow. As it promises, it makes the separation between layers clean and hard to screw up. If it ever comes to that, the testing of those independent layers is a breeze as well.</p>
 <h3>Actors/Components</h3>
 <p>The actor in this simulation represented as a bag of components. I decided to go with a sort of dynamic composition instead of the usual inheritance. I can extend the actor and add other aspects of simulation to it without worrying about modifying the others.</p>
-<h5><a href="https://github.com/gzozulin/blasterV2/blob/master/C:/dev/blasterV2/mars/src/main/kotlin/com/gzozulin/mars/entity/Actors.kt#L12">C:/dev/blasterV2/mars/src/main/kotlin/com/gzozulin/mars/entity/Actors.kt::Actor</a></h5>
+<h5><a href="https://github.com/gzozulin/blasterV2/blob/master/src/main/kotlin/com/gzozulin/mars/entity/Actors.kt#L12">com/gzozulin/mars/entity/Actors.kt::Actor</a></h5>
 <pre><code class="language-kotlin">class Actor internal constructor() {
     val uid: ActorUid = nextId.incrementAndGet()
 
@@ -47,11 +47,163 @@
 </code></pre>
 <p>For example, consider that the soccer ball is a physical body, can be represented as a billboard and is visible for the players. It can have a component of a position shared by all of the above properties and specialized components to be used independently.</p>
 <p>One more idea is to have parent-child relations between actors. For example, a tank gun is a child of the tank and inherits the tank's position and orientation. But I decided not to pursue this idea because KISS.</p>
-<h3>Entity repository: created, active, removed, byComponent, byPartition, factories</h3>
+<h3>The Repository</h3>
+<p>The Repository is a central location for the data in this application. It is designed to be a single source of truth between the Systems. The main goal of the Repository is to simplify access to actors.</p>
+<h5><a href="https://github.com/gzozulin/blasterV2/blob/master/src/main/kotlin/com/gzozulin/mars/entity/Repository.kt#L9">com/gzozulin/mars/entity/Repository.kt::Repository</a></h5>
+<pre><code class="language-kotlin">class Repository {
+    private val actorFactory = ActorFactory()
+    private val componentFactory = ComponentFactory()
+
+    private val created = HashSet&lt;Actor&gt;()
+    internal val active = mutableListOf&lt;Actor&gt;()
+    private val removed = HashSet&lt;Actor&gt;()
+
+    internal val byPartition = mutableMapOf&lt;PartitionId, Partition&gt;()
+    internal val byComponent = Array&lt;MutableList&lt;Actor&gt;&gt;(ComponentType.values().size) { mutableListOf() }
+
+    val existingPartitions: Collection&lt;PartitionId&gt;
+        get() = byPartition.keys
+
+    fun createActor(template: Template): Actor {
+        val actor = actorFactory.create()
+        template.set(actor, componentFactory)
+        created.add(actor)
+        return actor
+    }
+</code></pre>
+<p>The Repository consists of the storage itself and additional caches — the storage represented by a list of active actors with two auxiliary structures: for created and deleted.</p>
+<h5><a href="https://github.com/gzozulin/blasterV2/blob/master/src/main/kotlin/com/gzozulin/mars/entity/Repository.kt#L13">com/gzozulin/mars/entity/Repository.kt::created</a></h5>
+<pre><code class="language-kotlin">    private val created = HashSet&lt;Actor&gt;()
+</code></pre>
+<h5><a href="https://github.com/gzozulin/blasterV2/blob/master/src/main/kotlin/com/gzozulin/mars/entity/Repository.kt#L14">com/gzozulin/mars/entity/Repository.kt::active</a></h5>
+<pre><code class="language-kotlin">    internal val active = mutableListOf&lt;Actor&gt;()
+</code></pre>
+<h5><a href="https://github.com/gzozulin/blasterV2/blob/master/src/main/kotlin/com/gzozulin/mars/entity/Repository.kt#L15">com/gzozulin/mars/entity/Repository.kt::removed</a></h5>
+<pre><code class="language-kotlin">    private val removed = HashSet&lt;Actor&gt;()
+</code></pre>
+<p>That allows me to avoid concurrent modification exceptions and precisely control when the actors added or removed.</p>
+<p>There are also two main caches in the Repository. The first cache stores actors by partition:</p>
+<h5><a href="https://github.com/gzozulin/blasterV2/blob/master/src/main/kotlin/com/gzozulin/mars/entity/Repository.kt#L17">com/gzozulin/mars/entity/Repository.kt::byPartition</a></h5>
+<pre><code class="language-kotlin">    internal val byPartition = mutableMapOf&lt;PartitionId, Partition&gt;()
+</code></pre>
+<p>If we assume that the whole simulation world split into chunks of space, then each actor, which has a spatial representation, can be correlated with such chunk.</p>
+<p>The second cache stores actors by component:</p>
+<h5><a href="https://github.com/gzozulin/blasterV2/blob/master/src/main/kotlin/com/gzozulin/mars/entity/Repository.kt#L18">com/gzozulin/mars/entity/Repository.kt::byComponent</a></h5>
+<pre><code class="language-kotlin">    internal val byComponent = Array&lt;MutableList&lt;Actor&gt;&gt;(ComponentType.values().size) { mutableListOf() }
+</code></pre>
+<p>Both caches are there to speed up the retrieval of actors in certain situations. If you want to check whether your character is seeing another, you do not have to iterate against the whole world - just nearby partitions. For the second, the example is similar: it is fast to retrieve only the billboards to draw or the physical bodies to collide.</p>
+<p>One honorable mention goes to GcSystem:</p>
+<h5><a href="https://github.com/gzozulin/blasterV2/blob/master/src/main/kotlin/com/gzozulin/mars/entity/Repository.kt#L57">com/gzozulin/mars/entity/Repository.kt::GcSystem</a></h5>
+<pre><code class="language-kotlin">    class GcSystem {
+        private val spatialSubscriber =
+            Subscriber(ComponentType.SPATIAL)
+
+        fun performGC() {
+            handleRemovedActors()
+            handleCreatedActors()
+            updatePartitions()
+        }
+
+        private fun handleRemovedActors() {
+            repository.removed.forEach { actor -&gt;
+                repository.active.remove(actor)
+                removeFromCurrentPartition(actor)
+                ComponentType.values().forEach { type -&gt;
+                    if (actor.hasComponent(type)) {
+                        repository.byComponent[type.ordinal].remove(actor)
+                        repository.componentFactory.store(type, actor.readComponent(type))
+                    }
+                }
+                repository.actorFactory.store(actor)
+            }
+            repository.removed.clear()
+        }
+
+        private fun handleCreatedActors() {
+            repository.created.forEach { actor -&gt;
+                ComponentType.values().forEach { type -&gt;
+                    if (actor.hasComponent(type)) {
+                        repository.byComponent[type.ordinal].add(actor)
+                    }
+                }
+                addToNewPartition(actor)
+                repository.active.add(actor)
+            }
+            repository.created.clear()
+        }
+
+        private fun updatePartitions() {
+            spatialSubscriber.invokeOnChanges { actors -&gt;
+                actors.forEach { actor -&gt;
+                    val spatial = actor.readSpatial()
+                    val partition = spatial.partition
+                    if (partition != null &amp;&amp; partition.partitionId != spatial.position.partitionId()) {
+                        removeFromCurrentPartition(actor)
+                        addToNewPartition(actor)
+                    }
+                }
+            }
+        }
+
+        private fun removeFromCurrentPartition(actor: Actor) {
+            val spatial = actor.readSpatial()
+            check(spatial.partition != null)
+            check(spatial.partition!!.actors.remove(actor)) { &quot;Actor was not registered?!&quot; }
+            spatial.partition = null
+        }
+
+        private fun addToNewPartition(actor: Actor) {
+            val spatial = actor.readSpatial()
+            val partitionId = spatial.position.partitionId()
+            val partition = repository.byPartition.getOrPut(partitionId) {
+                Partition(
+                    partitionId
+                )
+            }
+            check(partition.actors.add(actor)) { &quot;Actor is already registered?!&quot; }
+            spatial.partition = partition
+        }
+    }
+</code></pre>
+<p>It is the only system, which has access to the internals of the Repository. The main task of this system is the maintenance of caches and created/updated entities.</p>
 <h3>Pull requests with Sequence</h3>
+<p>Accessing the actors from the Repository is also an interesting question. It is possible to do this in two ways. One way is to pull the actors from the Repo. Another is to push distinct actors into some Observer.</p>
+<p>Since the data in the Repository represented by multiple collections (by Partition, by Component, etc.) and has to be filtered when accessed, I want to avoid too many intermediate copies.</p>
+<p>Kotlin provides us with a great wat to accomplish precisely that with Sequences. The Sequence is a lazy iterator across multiple collections and filters. All of the filterings happens only with terminal operations. For example, when you are retrieving the result.</p>
+<h5><a href="https://github.com/gzozulin/blasterV2/blob/master/src/main/kotlin/com/gzozulin/mars/entity/Repository.kt#L38">com/gzozulin/mars/entity/Repository.kt::withComponents</a></h5>
+<pre><code class="language-kotlin">    fun withComponents(types: Collection&lt;ComponentType&gt;) = sequence {
+        for (type in types) {
+            yieldAll(withComponent(type))
+        }
+    }
+</code></pre>
+<p>But this approach can be inefficient in some cases because we will have to iterate across all of the members.</p>
 <h3>Push updates with ReactiveBus</h3>
+<p>When I know which actors are interesting to me, I can employ a different method. In UI/UX programming, the common problem is to react to specific changes in multiple places. For example, if we know that the actor was updated, and there are many Systems interested in this update, we can push that actor directly to those Systems without iteration.</p>
+<p>This approach works similarly to the concept of Reactive Programming. In my code I have Subscribers:</p>
+<h5><a href="https://github.com/gzozulin/blasterV2/blob/master/src/main/kotlin/com/gzozulin/mars/system/ReactiveBus.kt#L20">com/gzozulin/mars/system/ReactiveBus.kt::Subscriber</a></h5>
+<pre><code class="language-kotlin">class Subscriber(type: ComponentType)
+</code></pre>
+<p>And ReactiveBus:</p>
+<h5><a href="https://github.com/gzozulin/blasterV2/blob/master/src/main/kotlin/com/gzozulin/mars/system/ReactiveBus.kt#L7">com/gzozulin/mars/system/ReactiveBus.kt::ReactiveBus</a></h5>
+<pre><code class="language-kotlin">class ReactiveBus {
+    private val subscriptions = mutableMapOf&lt;ComponentType, MutableList&lt;Subscriber&gt;&gt;()
+
+    fun register(type: ComponentType, subscriber: Subscriber) {
+        val subscribers = subscriptions.getOrPut(type) { mutableListOf() }
+        subscribers.add(subscriber)
+    }
+
+    fun updated(type: ComponentType, actor: Actor) {
+        subscriptions[type]?.forEach { it.changed(actor) }
+    }
+}
+</code></pre>
+<p>When the Component of the actor is updated (written into), it communicates that fact to the Subscribers interested in this change. This approach allows us to avoid monitoring all actors in Repo every tick. Only those who were updated receive treatment.</p>
 <h3>Actor CSS with Templates, data/builder</h3>
 <h3>The mechanics: bouncing balls</h3>
+<p>Collision with bounds</p>
+<p>Collision with others</p>
 <h3>The presentation: patches and billboards</h3>
 <h3>Sequential execution with forking</h3>
 <h3>Profiling the whole thing</h3>

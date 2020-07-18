@@ -85,12 +85,14 @@ private abstract class ParserCache<K, T : AntlrParser> {
 }
 
 private val kotlinParserCache = object : ParserCache<File, KotlinParser>() {
-    override fun createParser(key: File) =
-        KotlinParser(CommonTokenStream(KotlinLexer(CharStreams.fromFileName(key.absolutePath))))
+    override fun createParser(key: File): KotlinParser {
+        println("Creating parser for: $key")
+        return KotlinParser(CommonTokenStream(KotlinLexer(CharStreams.fromFileName(key.absolutePath))))
+    }
 }
 
 private val statementsParserCache = object : ParserCache<String, StatementsParser>() {
-    override fun createParser(key: String): StatementsParser =
+    override fun createParser(key: String) =
         StatementsParser(CommonTokenStream(StatementsLexer(CharStreams.fromString(key))))
 }
 
@@ -127,21 +129,20 @@ private fun applyCommands(snippets: List<Snippet>, root: File, url: String): Lis
 
 // To apply the specific command I just switch by its label and call the appropriate method
 private fun applyCommand(command: SnippetCommand, root: File, url: String): List<SnippetMarkdown> {
+    val cmdStr: String
+    val location: Location
     try {
         val cmdBody = command.command.removePrefix(COMMAND_PREFIX)
-        val split = cmdBody.split(whitespacePattern)
-        val location = parseLocation(root, url, split[2])
-        return when (split[1]) {
-            COMMAND_DECL -> includeDecl(location)
-            COMMAND_DEF -> includeDef(location)
-            else -> TODO()
-        }
-        /*
-            Since the commands can contain literally anything,
-            one can assume that errors will also happen and prepare for that
-         */
+        val split =  cmdBody.split(whitespacePattern)
+        cmdStr = split[1]
+        location = parseLocation(root, url, split[2])
     } catch (th: Throwable) {
-        error("Failed to handle command: ${command.command}, with error: ${th.message}")
+        error("Failed to parse command: ${command.command}, msg: ${th.message}")
+    }
+    return when (cmdStr) {
+        COMMAND_DECL -> includeDecl(location)
+        COMMAND_DEF -> includeDef(location)
+        else -> TODO()
     }
 }
 
@@ -176,7 +177,8 @@ private fun includeDecl(location: Location): List<SnippetMarkdown> {
 private fun includeDef(location: Location): List<SnippetMarkdown> {
     lateinit var tokens: List<Token>
     var line = 0
-    kotlinParserCache.useParser(location.file) { parser, stream ->
+    val file = File(location.root, location.file.path)
+    kotlinParserCache.useParser(file) { parser, stream ->
         val definition = locateKotlin(parser, location)
         line = definition.start.line
         val firstToken = findFirstToken(stream, definition)
@@ -342,9 +344,11 @@ private fun locateStatements(parser: StatementsParser): List<ParserRuleContext> 
 private fun parseLocation(root: File, url: String, location: String): Location {
     val noDots = location.replace(".", "/")
     val withHome = noDots.replace("~", HOME_DIR)
-    val (filename, identifier) = withHome.split("::")
-    val file = File(root, "$filename.kt")
-    check(file.exists()) { "File do not exists: $location" }
+    val (name, identifier) = withHome.split("::")
+    val filename = "$name.kt"
+    val file = File(filename)
+    val full = File(root, filename)
+    check(full.exists()) { "File do not exists: $location" }
     return Location(root, file, identifier, url)
 }
 

@@ -30,7 +30,6 @@ This approach is straightforward to follow. As it promises, it makes the separat
 
 ### Actors/Components
 The actor in this simulation represented as a bag of components. I decided to go with a sort of dynamic composition instead of the usual inheritance. I can extend the actor and add other aspects of simulation to it without worrying about modifying the others.
-
 @include def ~/com.gzozulin.mars.entity.Actors::Actor
 
 For example, consider that the soccer ball is a physical body, can be represented as a billboard and is visible for the players. It can have a component of a position shared by all of the above properties and specialized components to be used independently.
@@ -39,30 +38,55 @@ One more idea is to have parent-child relations between actors. For example, a t
 
 ### The Repository
 The Repository is a central location for the data in this application. It is designed to be a single source of truth between the Systems. The main goal of the Repository is to simplify access to actors.
-@include decl ~/com.gzozulin.mars.entity.Repository::Repository
+@include def ~/com.gzozulin.mars.entity.Repository::Repository
 
 The Repository consists of the storage itself and additional caches — the storage represented by a list of active actors with two auxiliary structures: for created and deleted.
-@include decl ~/com.gzozulin.mars.entity.Repository::created
-@include decl ~/com.gzozulin.mars.entity.Repository::active
-@include decl ~/com.gzozulin.mars.entity.Repository::removed
+@include def ~/com.gzozulin.mars.entity.Repository::created
+@include def ~/com.gzozulin.mars.entity.Repository::active
+@include def ~/com.gzozulin.mars.entity.Repository::removed
 
 That allows me to avoid concurrent modification exceptions and precisely control when the actors added or removed.
 There are also two main caches in the Repository. The first cache stores actors by partition:
-@include decl ~/com.gzozulin.mars.entity.Repository::byPartition
+@include def ~/com.gzozulin.mars.entity.Repository::byPartition
 
 If we assume that the whole simulation world split into chunks of space, then each actor, which has a spatial representation, can be correlated with such chunk.
 The second cache stores actors by component:
-@include decl ~/com.gzozulin.mars.entity.Repository::byComponent
+@include def ~/com.gzozulin.mars.entity.Repository::byComponent
 
 Both caches are there to speed up the retrieval of actors in certain situations. If you want to check whether your character is seeing another, you do not have to iterate against the whole world - just nearby partitions. For the second, the example is similar: it is fast to retrieve only the billboards to draw or the physical bodies to collide.
+
 One honorable mention goes to GcSystem:
-@include decl ~/com.gzozulin.mars.entity.Repository::GcSystem
+@include def ~/com.gzozulin.mars.entity.Repository::GcSystem
 
 It is the only system, which has access to the internals of the Repository. The main task of this system is the maintenance of caches and created/updated entities.
+
 ### Pull requests with Sequence
+Accessing the actors from the Repository is also an interesting question. It is possible to do this in two ways. One way is to pull the actors from the Repo. Another is to push distinct actors into some Observer.
+
+Since the data in the Repository represented by multiple collections (by Partition, by Component, etc.) and has to be filtered when accessed, I want to avoid too many intermediate copies.
+
+Kotlin provides us with a great wat to accomplish precisely that with Sequences. The Sequence is a lazy iterator across multiple collections and filters. All of the filterings happens only with terminal operations. For example, when you are retrieving the result.
+
+@include def ~/com.gzozulin.mars.entity.Repository::withComponents
+
+But this approach can be inefficient in some cases because we will have to iterate across all of the members.
+
 ### Push updates with ReactiveBus
+When I know which actors are interesting to me, I can employ a different method. In UI/UX programming, the common problem is to react to specific changes in multiple places. For example, if we know that the actor was updated, and there are many Systems interested in this update, we can push that actor directly to those Systems without iteration.
+
+This approach works similarly to the concept of Reactive Programming. In my code I have Subscribers:
+
+@include decl ~/com.gzozulin.mars.system.ReactiveBus::Subscriber
+
+And ReactiveBus:
+@include def ~/com.gzozulin.mars.system.ReactiveBus::ReactiveBus
+
+When the Component of the actor is updated (written into), it communicates that fact to the Subscribers interested in this change. This approach allows us to avoid monitoring all actors in Repo every tick. Only those who were updated receive treatment.
+
 ### Actor CSS with Templates, data/builder
 ### The mechanics: bouncing balls
+Collision with bounds
+Collision with others
 ### The presentation: patches and billboards
 ### Sequential execution with forking
 ### Profiling the whole thing
